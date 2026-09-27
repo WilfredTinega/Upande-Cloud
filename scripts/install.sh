@@ -8,12 +8,12 @@
 #
 # One-line install on a fresh Linux server:
 #
-#   curl -fsSL https://raw.githubusercontent.com/ZonalTech/Zonal-Cloud/main/scripts/install.sh | bash -s -- \
+#   curl -fsSL https://raw.githubusercontent.com/WilfredTinega/Upande-Cloud/main/scripts/install.sh | bash -s -- \
 #     --domain example.com --acme-email you@example.com
 #
 # Or set up the CLI only (no install) and run it yourself:
 #
-#   curl -fsSL https://raw.githubusercontent.com/ZonalTech/Zonal-Cloud/main/scripts/install.sh | UPANDE_NO_INSTALL=1 bash
+#   curl -fsSL https://raw.githubusercontent.com/WilfredTinega/Upande-Cloud/main/scripts/install.sh | UPANDE_NO_INSTALL=1 bash
 #
 # What it does:
 #   1. Installs prerequisites: curl + Node.js 20 (via NodeSource) if missing.

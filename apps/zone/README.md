@@ -36,7 +36,7 @@ npx @zonalcloud/zone --help
 Or use the bootstrap (installs Node + the CLI, then runs the install):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ZonalTech/Zonal-Cloud/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/WilfredTinega/Upande-Cloud/main/scripts/install.sh \
   | bash -s -- --domain example.com --acme-email you@example.com
 ```
 
@@ -106,10 +106,10 @@ Omit `--domain` for **localhost mode** (`*.localhost`, HTTP only).
 ## Choosing images
 
 ```bash
-zone install --registry ghcr.io/zonaltech/zonal-cloud --tag v0.1.0
+zone install --registry ghcr.io/wilfredtinega/upande-cloud --tag v0.1.0
 ```
 
-- `--registry` defaults to `ghcr.io/zonaltech/zonal-cloud`.
+- `--registry` defaults to `ghcr.io/wilfredtinega/upande-cloud`.
 - `--tag` defaults to `latest`.
 
 Both are stored in `.env` (`UPANDE_REGISTRY`, `UPANDE_TAG`). The frontends are

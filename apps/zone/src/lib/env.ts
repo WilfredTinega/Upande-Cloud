@@ -141,7 +141,7 @@ export function buildEnv(opts: GenerateEnvOptions = {}): EnvMap {
     // redis, traefik, pdns, stalwart, …) are mirrored into GHCR so the server
     // never pulls from Docker Hub (rate-limited). Override only for a private
     // mirror or to pull from Hub directly.
-    MIRROR_REGISTRY: keep('MIRROR_REGISTRY', 'ghcr.io/zonaltech/zonal-cloud/mirror'),
+    MIRROR_REGISTRY: keep('MIRROR_REGISTRY', 'ghcr.io/wilfredtinega/upande-cloud/mirror'),
     // Managed mail (Stalwart). Admin user defaults to the operator email when
     // known (ACME/superadmin), else "admin"; password is generated + preserved.
     MAIL_HOST: mailHost,

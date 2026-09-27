@@ -236,7 +236,7 @@ npm install -g @zonalcloud/zone
 zone --version
 
 # Or bootstrap Node + the CLI and install in one shot (scripts/install.sh):
-curl -fsSL https://raw.githubusercontent.com/ZonalTech/Zonal-Cloud/main/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/WilfredTinega/Upande-Cloud/main/scripts/install.sh \
   | bash -s -- --domain example.com --acme-email you@example.com
 ```
 

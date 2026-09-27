@@ -1,6 +1,6 @@
 {
   "name": "@zonalcloud/zone",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "zone — operator CLI to install, run, and maintain Upande Cloud on a Linux server",
   "license": "MIT",
   "bin": {

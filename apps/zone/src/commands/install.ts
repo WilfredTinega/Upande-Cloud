@@ -39,7 +39,7 @@ import { renderTraefikProd, looksLikeEmail } from '../lib/tls';
 import { runPreflight } from './preflight';
 import { ui, die } from '../lib/ui';
 
-const DEFAULT_REGISTRY = 'ghcr.io/zonaltech/zonal-cloud';
+const DEFAULT_REGISTRY = 'ghcr.io/wilfredtinega/upande-cloud';
 
 interface InstallOpts {
   domain?: string;

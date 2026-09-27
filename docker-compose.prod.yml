@@ -16,7 +16,7 @@
 
 services:
   api:
-    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/api:${UPANDE_TAG:-latest}
+    image: ${UPANDE_REGISTRY:-ghcr.io/wilfredtinega/upande-cloud}/api:${UPANDE_TAG:-latest}
     container_name: upande_api
     restart: unless-stopped
     env_file: .env
@@ -46,7 +46,7 @@ services:
       - "traefik.http.services.upande-api.loadbalancer.server.port=4000"
 
   dashboard:
-    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/dashboard:${UPANDE_TAG:-latest}
+    image: ${UPANDE_REGISTRY:-ghcr.io/wilfredtinega/upande-cloud}/dashboard:${UPANDE_TAG:-latest}
     container_name: upande_dashboard
     restart: unless-stopped
     environment:
@@ -64,7 +64,7 @@ services:
       - "traefik.http.services.upande-dashboard.loadbalancer.server.port=80"
 
   admin:
-    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/admin:${UPANDE_TAG:-latest}
+    image: ${UPANDE_REGISTRY:-ghcr.io/wilfredtinega/upande-cloud}/admin:${UPANDE_TAG:-latest}
     container_name: upande_admin
     restart: unless-stopped
     environment:
