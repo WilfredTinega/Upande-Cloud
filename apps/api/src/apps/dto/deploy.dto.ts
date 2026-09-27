@@ -1,0 +1,19 @@
+import { IsBoolean, IsOptional, IsString } from 'class-validator';
+
+export class DeployDto {
+  @IsOptional()
+  @IsString()
+  ref?: string;
+
+  // Migrate: force a clean rebuild (no cache) with a rollback-safe swap that
+  // restores the previous container if the new one fails to come up.
+  @IsOptional()
+  @IsBoolean()
+  forceClean?: boolean;
+
+  // "Clear build cache & redeploy": drop this app's build cache, then a clean
+  // (forceClean) rebuild.
+  @IsOptional()
+  @IsBoolean()
+  clearCache?: boolean;
+}

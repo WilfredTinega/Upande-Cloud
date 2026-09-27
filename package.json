@@ -1,0 +1,21 @@
+{
+  "name": "upande-cloud",
+  "private": true,
+  "description": "Upande Cloud monorepo — root scripts for local development",
+  "scripts": {
+    "postinstall": "node scripts/setup-env.js && npm install --prefix apps/api && npm install --prefix apps/dashboard && npm install --prefix apps/admin",
+    "setup:env": "node scripts/setup-env.js",
+    "infra": "docker compose up -d --wait postgres && bash scripts/dns-bootstrap.sh && docker compose up -d",
+    "infra:down": "docker compose down",
+    "db:generate": "cross-env PRISMA_ENGINES_MIRROR=https://cdn.npmmirror.com/binaries/prisma npm run prisma:generate --prefix apps/api",
+    "db:migrate": "cd apps/api && cross-env PRISMA_ENGINES_MIRROR=https://cdn.npmmirror.com/binaries/prisma npx prisma migrate deploy",
+    "prestart": "npm run infra && npm run db:generate && npm run db:migrate",
+    "start": "concurrently -k -n api,dashboard,admin -c blue,green,magenta \"npm run dev --prefix apps/api\" \"npm run dev --prefix apps/dashboard\" \"npm run dev --prefix apps/admin\"",
+    "dev": "npm start",
+    "create-superadmin": "npm run create-superadmin --prefix apps/api --"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3"
+  }
+}

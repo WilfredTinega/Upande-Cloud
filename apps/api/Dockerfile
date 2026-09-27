@@ -1,0 +1,93 @@
+# Upande Cloud API — production image.
+#
+# Multi-stage: install + build with the full toolchain, then ship a slim
+# runtime that contains only production deps and the compiled dist/.
+#
+# Notes:
+#  - The API talks to the Docker daemon via /var/run/docker.sock (dockerode),
+#    so the container must run with that socket mounted (see docker-compose.prod.yml).
+#  - PRISMA_ENGINES_MIRROR points at npmmirror because the default Prisma CDN
+#    is heavily throttled on some networks (documented in the repo README).
+#  - prisma generate runs at build time so the query engine is baked in.
+
+# ---------- build stage ----------
+FROM node:24-bookworm-slim AS build
+WORKDIR /app
+
+ENV PRISMA_ENGINES_MIRROR=https://cdn.npmmirror.com/binaries/prisma
+
+# OpenSSL is needed by Prisma's engine at build time.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY tsconfig*.json nest-cli.json ./
+COPY src ./src
+COPY scripts ./scripts
+RUN npm run build
+
+# The operator scripts (e.g. create-superadmin) are excluded from nest build,
+# so compile them separately into dist/scripts for the runtime image. They are
+# CommonJS and share the same compiler options as the app.
+RUN npx tsc scripts/create-superadmin.ts \
+      --outDir dist/scripts \
+      --module commonjs --target ES2021 --esModuleInterop --skipLibCheck
+
+# Drop dev dependencies for the runtime image.
+RUN npm prune --omit=dev
+
+# ---------- runtime stage ----------
+FROM node:24-bookworm-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+
+# git is required at runtime: the deploy engine clones user repos and lists
+# their branches via `git ls-remote` / `git clone` (simple-git shells out to it).
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
+
+# The deploy engine shells out to the `docker` CLI (`docker build`, builder
+# prune, etc.) to build user app images, talking to the HOST daemon via the
+# mounted /var/run/docker.sock. Only the client binary is needed (no daemon).
+ARG DOCKER_CLI_VERSION=28.3.3
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+      amd64) dockerArch=x86_64 ;; \
+      arm64) dockerArch=aarch64 ;; \
+      *) echo "unsupported arch: $arch" && exit 1 ;; \
+    esac; \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${dockerArch}/docker-${DOCKER_CLI_VERSION}.tgz" -o /tmp/docker.tgz; \
+    tar -xzf /tmp/docker.tgz -C /tmp; \
+    mv /tmp/docker/docker /usr/local/bin/docker; \
+    rm -rf /tmp/docker /tmp/docker.tgz; \
+    docker --version
+
+# buildx CLI plugin → `docker build` uses BuildKit, which the build cache needs
+# for per-app cache mounts (npm/yarn/pnpm + .next/cache, node_modules/.vite).
+# Without it the deploy engine falls back to the legacy builder (dependency
+# layer caching only). Set DOCKER_BUILDKIT=0 on the API to force legacy.
+ARG BUILDX_VERSION=v0.26.1
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; \
+    mkdir -p /usr/local/lib/docker/cli-plugins; \
+    curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${arch}" \
+      -o /usr/local/lib/docker/cli-plugins/docker-buildx; \
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx; \
+    docker buildx version
+
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/scripts ./scripts
+COPY package.json ./
+
+EXPOSE 4000
+
+# Compiled entrypoint (apps/api/src/main.ts -> dist/main.js).
+CMD ["node", "dist/main.js"]

@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Poppins everywhere: overrides browser defaults (form controls, headings),
+   inline fonts and chart SVG text so every element uses one family. */
+@layer base {
+  html,
+  body,
+  *,
+  *::before,
+  *::after,
+  svg text,
+  svg tspan {
+    font-family: "Poppins", ui-sans-serif, system-ui, sans-serif !important;
+  }
+
+  /* Logs and code stay fixed-width so columns and indentation line up. */
+  pre,
+  pre *,
+  code,
+  code *,
+  kbd,
+  samp,
+  .font-mono,
+  .font-mono * {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace !important;
+  }
+
+  /* A <pre> explicitly marked font-sans keeps Poppins. */
+  pre.font-sans,
+  pre.font-sans * {
+    font-family: "Poppins", ui-sans-serif, system-ui, sans-serif !important;
+  }
+}
+
+@layer utilities {
+  /* Hide the scrollbar track while keeping the element scrollable. */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/WebKit */
+  }
+
+  /* Toast entrance: slide up from the bottom-right and fade in. */
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-toast-in {
+    animation: toast-in 0.18s ease-out;
+  }
+}

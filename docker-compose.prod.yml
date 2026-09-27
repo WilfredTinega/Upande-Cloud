@@ -1,0 +1,81 @@
+# docker-compose.prod.yml — Upande Cloud full-stack server overlay.
+#
+# Used together with docker-compose.yml by upandectl:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This overlay adds the application tier (api, dashboard, admin) as built
+# containers, on top of the infrastructure (postgres, redis, traefik) defined
+# in the base file. It is what turns a checkout into a running platform on a
+# server, as opposed to the npm-based local dev workflow.
+#
+# Host rules:
+#   - With DOMAIN set, services are routed at api/dashboard/admin.<DOMAIN>.
+#   - Without DOMAIN, they fall back to the *.localhost names.
+# upandectl computes API_HOST / DASHBOARD_HOST / ADMIN_HOST and the
+# build-time VITE_API_URL into .env so these labels resolve.
+
+services:
+  api:
+    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/api:${UPANDE_TAG:-latest}
+    container_name: upande_api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      PORT: ${PORT:-4000}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Host path of the platform data dir (compose files + .env), so the
+      # admin "Zone CLI" ops can mount it into the one-shot upgrade helper.
+      UPANDE_DATA_DIR: ${UPANDE_DATA_DIR:-/opt/upande-cloud}
+    volumes:
+      # The API uses dockerode to deploy app containers, so it needs the socket.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - upande_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.upande-api.rule=Host(`${API_HOST:-api.localhost}`)"
+      - "traefik.http.routers.upande-api.entrypoints=web"
+      - "traefik.http.services.upande-api.loadbalancer.server.port=4000"
+
+  dashboard:
+    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/dashboard:${UPANDE_TAG:-latest}
+    container_name: upande_dashboard
+    restart: unless-stopped
+    environment:
+      # The SPA reads the API URL at runtime from config.js (written by the
+      # image entrypoint), so this is a runtime env, NOT a build arg.
+      UPANDE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+    depends_on:
+      - api
+    networks:
+      - upande_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.upande-dashboard.rule=Host(`${DASHBOARD_HOST:-dashboard.localhost}`)"
+      - "traefik.http.routers.upande-dashboard.entrypoints=web"
+      - "traefik.http.services.upande-dashboard.loadbalancer.server.port=80"
+
+  admin:
+    image: ${UPANDE_REGISTRY:-ghcr.io/zonaltech/zonal-cloud}/admin:${UPANDE_TAG:-latest}
+    container_name: upande_admin
+    restart: unless-stopped
+    environment:
+      UPANDE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+      UPANDE_DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:5173}
+    depends_on:
+      - api
+    networks:
+      - upande_net
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.upande-admin.rule=Host(`${ADMIN_HOST:-admin.localhost}`)"
+      - "traefik.http.routers.upande-admin.entrypoints=web"
+      - "traefik.http.services.upande-admin.loadbalancer.server.port=80"

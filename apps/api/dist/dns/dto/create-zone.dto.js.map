@@ -1,0 +1,1 @@
+{"version":3,"file":"create-zone.dto.js","sourceRoot":"","sources":["../../../src/dns/dto/create-zone.dto.ts"],"names":[],"mappings":";;;;;;;;;;;;AAAA,qDAAoD;AAEpD,MAAa,aAAa;CAQzB;AARD,sCAQC;AADC;IAJC,IAAA,0BAAQ,GAAE;IACV,IAAA,yBAAO,EAAC,uCAAuC,EAAE;QAChD,OAAO,EAAE,wCAAwC;KAClD,CAAC;;2CACW"}
