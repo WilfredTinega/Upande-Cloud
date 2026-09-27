@@ -105,14 +105,26 @@ Omit `--domain` for **localhost mode** (`*.localhost`, HTTP only).
 
 ## Choosing images
 
+`zone install` asks where to pull images from:
+
+| Source | `--source` | Registry |
+|--------|-----------|----------|
+| Upande Cloud (default) | `upande` | `ghcr.io/wilfredtinega/upande-cloud` |
+| Zonal Cloud | `zonal` | `ghcr.io/zonaltech/zonal-cloud` |
+
 ```bash
-zone install --registry ghcr.io/wilfredtinega/upande-cloud --tag v0.1.0
+zone install --source zonal --tag latest                  # skip the prompt
+zone install --registry ghcr.io/you/your-fork             # any other registry
 ```
 
-- `--registry` defaults to `ghcr.io/wilfredtinega/upande-cloud`.
+- Choosing a source sets both the platform images and the base-image mirror
+  (`<registry>/mirror`).
+- `--registry` overrides `--source`. With `--non-interactive` and neither flag,
+  the current `.env` value is kept, else Upande Cloud.
 - `--tag` defaults to `latest`.
 
-Both are stored in `.env` (`UPANDE_REGISTRY`, `UPANDE_TAG`). The frontends are
+These are stored in `.env` (`UPANDE_REGISTRY`, `MIRROR_REGISTRY`, `UPANDE_TAG`),
+and `zone upgrade` keeps them. The frontends are
 **generic** images — the API URL is injected at container start from
 `UPANDE_API_URL`, so one published image serves any domain (no per-deploy
 rebuild). `zone upgrade --tag vX.Y.Z` moves the deployment to a new version.

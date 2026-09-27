@@ -38,13 +38,13 @@ import { materializeTemplates } from '../lib/templates';
 import { renderTraefikProd, looksLikeEmail } from '../lib/tls';
 import { runPreflight } from './preflight';
 import { ui, die } from '../lib/ui';
-
-const DEFAULT_REGISTRY = 'ghcr.io/wilfredtinega/upande-cloud';
+import { DEFAULT_SOURCE, IMAGE_SOURCES, mirrorOf, sourceById, sourceByRegistry } from '../lib/sources';
 
 interface InstallOpts {
   domain?: string;
   acmeEmail?: string;
   registry?: string;
+  source?: string;
   tag?: string;
   adminEmail?: string;
   adminPassword?: string;
@@ -100,12 +100,53 @@ async function ensureDocker(opts: InstallOpts): Promise<void> {
   }
 }
 
+interface ResolvedSource {
+  registry: string;
+  // Set only for a known source; otherwise MIRROR_REGISTRY keeps its current value.
+  mirror?: string;
+}
+
+/**
+ * Decide where images are pulled from. Preference order:
+ *   --registry → --source → prompt (interactive) → existing .env → default.
+ */
+export async function resolveSource(ctx: Ctx, opts: InstallOpts): Promise<ResolvedSource> {
+  const known = (registry: string): ResolvedSource => ({ registry, mirror: mirrorOf(registry) });
+
+  if (opts.registry) {
+    return sourceByRegistry(opts.registry) ? known(opts.registry) : { registry: opts.registry };
+  }
+  if (opts.source) {
+    const src = sourceById(opts.source);
+    if (!src) die(`Unknown --source "${opts.source}". Choose one of: ${IMAGE_SOURCES.map((s) => s.id).join(', ')}.`);
+    return known(src.registry);
+  }
+
+  const current = readEnvFile(ctx.paths.envFile).UPANDE_REGISTRY;
+  if (opts.nonInteractive) return { registry: current || DEFAULT_SOURCE.registry };
+
+  const choices = IMAGE_SOURCES.map((s) => ({ title: s.label, description: s.registry, value: s.registry }));
+  if (current && !sourceByRegistry(current)) {
+    choices.push({ title: 'Keep current', description: current, value: current });
+  }
+  const initial = Math.max(0, choices.findIndex((c) => c.value === (current || DEFAULT_SOURCE.registry)));
+  const ans = await prompts({
+    type: 'select',
+    name: 'registry',
+    message: 'Pull platform images from',
+    choices,
+    initial,
+  });
+  if (!ans.registry) die('No image source chosen. Aborting.');
+  return sourceByRegistry(ans.registry) ? known(ans.registry) : { registry: ans.registry };
+}
+
 /**
  * Resolve/generate the .env, preserving any existing secrets. In domain mode
  * this also persists ACME_EMAIL and renders the Traefik production (TLS)
  * config so Let's Encrypt can issue certificates.
  */
-function ensureEnv(ctx: Ctx, opts: InstallOpts, acmeEmail?: string): EnvMap {
+function ensureEnv(ctx: Ctx, opts: InstallOpts, source: ResolvedSource, acmeEmail?: string): EnvMap {
   const existing = readEnvFile(ctx.paths.envFile);
   const hadEnv = Object.keys(existing).length > 0;
   const env = buildEnv({
@@ -115,7 +156,8 @@ function ensureEnv(ctx: Ctx, opts: InstallOpts, acmeEmail?: string): EnvMap {
   });
 
   // Registry image source (used by the bundled compose's image: tags).
-  env.UPANDE_REGISTRY = opts.registry || existing.UPANDE_REGISTRY || DEFAULT_REGISTRY;
+  env.UPANDE_REGISTRY = source.registry;
+  if (source.mirror) env.MIRROR_REGISTRY = source.mirror;
   env.UPANDE_TAG = opts.tag || existing.UPANDE_TAG || 'latest';
 
   // Host data dir — the API mounts this into the one-shot helper that runs
@@ -135,7 +177,9 @@ function ensureEnv(ctx: Ctx, opts: InstallOpts, acmeEmail?: string): EnvMap {
   if (hadEnv) ui.ok(`.env updated (existing secrets preserved): ${ctx.paths.envFile}`);
   else ui.ok(`.env generated with fresh secrets (0600): ${ctx.paths.envFile}`);
   ui.detail('DOMAIN', env.DOMAIN || '(localhost mode)');
+  ui.detail('Source', sourceByRegistry(env.UPANDE_REGISTRY)?.label || 'Custom registry');
   ui.detail('Images', `${env.UPANDE_REGISTRY}/{api,dashboard,admin}:${env.UPANDE_TAG}`);
+  ui.detail('Base images', env.MIRROR_REGISTRY);
   ui.detail('API host', env.API_HOST);
   ui.detail('Dashboard host', env.DASHBOARD_HOST);
   ui.detail('Admin host', env.ADMIN_HOST);
@@ -220,7 +264,8 @@ export function registerInstall(program: Command): void {
     .description('Install and bring up the full Upande Cloud stack on this server')
     .option('--domain <domain>', 'public domain (e.g. example.com); omit for localhost mode')
     .option('--acme-email <email>', "email for Let's Encrypt (defaults to the superadmin email)")
-    .option('--registry <url>', `image registry (default: ${DEFAULT_REGISTRY})`)
+    .option('--source <id>', `image source: ${IMAGE_SOURCES.map((s) => s.id).join(' | ')} (prompts if omitted)`)
+    .option('--registry <url>', 'custom image registry (overrides --source)')
     .option('--tag <tag>', 'image tag to deploy (default: latest)')
     .option('--admin-email <email>', 'superadmin email (non-interactive)')
     .option('--admin-password <password>', 'superadmin password (non-interactive)')
@@ -254,7 +299,8 @@ export function registerInstall(program: Command): void {
       // 4. env (+ TLS in domain mode)
       ui.heading('Configuration');
       const acmeEmail = opts.domain ? await resolveAcmeEmail(ctx, opts) : undefined;
-      const env = ensureEnv(ctx, opts, acmeEmail);
+      const source = await resolveSource(ctx, opts);
+      const env = ensureEnv(ctx, opts, source, acmeEmail);
 
       if (env.DOMAIN) {
         ui.newline();
