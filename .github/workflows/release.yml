@@ -1,0 +1,138 @@
+# Build and publish Upande Cloud platform images to GHCR.
+#
+# Produces the three images the server pulls (zone install / upgrade):
+#   ghcr.io/<owner>/<repo>/api
+#   ghcr.io/<owner>/<repo>/dashboard
+#   ghcr.io/<owner>/<repo>/admin
+#
+# Triggers:
+#   - push to main      -> tags :latest (+ :sha-<short>)
+#   - push of a v* tag  -> tags :<version> and :latest
+#   - manual dispatch    -> tags whatever you pass as `tag`
+#
+# The frontend images are GENERIC (API URL is injected at container runtime via
+# UPANDE_API_URL), so a single build serves every domain — no per-deploy rebuild.
+
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to publish"
+        required: true
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [api, dashboard, admin]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set lowercase image name
+        id: img
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}/${{ matrix.app }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.img.outputs.name }}
+          # Manage :latest explicitly below so it moves on BOTH default-branch
+          # pushes AND v* tag releases (the built-in flavor would only do one).
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/${{ matrix.app }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # After all three images are published, roll them out to the VPS by running
+  # `zone upgrade` over SSH — so a push to main deploys end-to-end with no manual
+  # step. Skips cleanly (no failure) when the deploy secrets aren't configured.
+  #
+  # Required repo secrets:
+  #   VPS_HOST            - the server's host/IP (e.g. 209.151.144.92)
+  #   VPS_SSH_USER        - SSH user (e.g. root)
+  #   VPS_SSH_KEY         - a private key authorized on the VPS
+  # Optional repo variable:
+  #   VPS_SSH_PORT        - SSH port (default 22)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only auto-deploy default-branch / tag releases, never arbitrary dispatch.
+    if: github.event_name == 'push'
+    steps:
+      - name: Check deploy config
+        id: cfg
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::notice::VPS deploy secrets not set (VPS_HOST/VPS_SSH_USER/VPS_SSH_KEY) — skipping auto-deploy."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install SSH key
+        if: steps.cfg.outputs.configured == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ vars.VPS_SSH_PORT || 22 }}" -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Upgrade platform on the VPS
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          PORT: ${{ vars.VPS_SSH_PORT || 22 }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          # Refresh the CLI from npm, then upgrade. `zone upgrade` pulls the new
+          # images we just pushed, re-materializes compose, migrates, and
+          # restarts — DNS + mail + apps all roll forward.
+          ssh -i ~/.ssh/deploy_key -p "$PORT" "$USER@$HOST" bash -lc '
+            set -e
+            npm i -g @zonalcloud/zone@latest >/dev/null 2>&1 || npm i -g @zonalcloud/zone@latest
+            hash -r || true
+            cd /opt/upande-cloud
+            zone upgrade --no-backup
+          '
