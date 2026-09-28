@@ -196,6 +196,36 @@ curl -I https://dashboard.<domain>     # expect HTTP/2 200, valid cert
 > against Let's Encrypt's "5 failed authorizations per host per hour" limit; burn
 > through it and you wait ~1 hour. See [§8.4](#84-lets-encrypt-cert-fails).
 
+### Before your DNS works: use the server IP via sslip.io
+
+Routing is by hostname, so the bare IP (`http://<vps-ip>`) only ever shows the
+"Site not available" fallback page. While your own domain's DNS is being sorted,
+use [sslip.io](https://sslip.io) — a free wildcard DNS service that resolves any
+name containing an IP to that IP, with no signup:
+
+```bash
+zone tls --domain cloud-94-237-46-39.sslip.io --acme-email you@example.com
+```
+
+- Write the IP with **dashes** (`94-237-46-39`), so each host stays one label
+  deep and the certificates are valid.
+- An optional word prefix is allowed (`cloud-94-237-46-39.sslip.io`,
+  `upande-94-237-46-39.sslip.io`). The IP must stay in the name —
+  `cloud.sslip.io` resolves to nothing.
+- The platform is then at `https://admin.cloud-94-237-46-39.sslip.io`,
+  `https://dashboard.…` and `https://api.…/v1`, and deployed apps at
+  `https://<slug>.cloud-94-237-46-39.sslip.io`.
+- sslip.io is shared, so Let's Encrypt may rate-limit it. Traefik then serves a
+  self-signed certificate: the site still works after clicking through the
+  browser warning.
+
+When your domain resolves (step 3 above), switch over. Data and secrets are
+kept:
+
+```bash
+zone tls --domain <domain> --acme-email you@example.com
+```
+
 ---
 
 ## 6. Deploying apps
@@ -414,6 +444,76 @@ git pull --rebase origin main          # resolve any conflicts, then: git rebase
 git push origin main
 ```
 **Never** `git push --force` to bypass this — it erases remote‑only commits.
+
+### 8.15 `zone --version` → `SyntaxError: Unexpected token '?'`
+**Cause:** the server's Node.js is too old (Ubuntu 22.04's apt ships Node 12). The
+CLI needs Node **20+**; npm only warns `EBADENGINE` at install time.
+**Fix:** remove the distro Node, install Node 20 from NodeSource, reinstall the CLI:
+```bash
+apt-get remove -y nodejs libnode72 nodejs-doc; apt-get autoremove -y
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs
+hash -r && node -v                        # v20.x
+npm install -g @zonalcloud/zone@latest
+```
+Removing `libnode72` first avoids NodeSource's `trying to overwrite
+/usr/include/node/common.gypi` error.
+
+### 8.16 Image pull fails: `lookup ghcr.io on 127.0.0.53:53: connection refused`
+**Cause:** `zone install` disables systemd-resolved's stub listener to free port 53
+for managed DNS, but `/etc/resolv.conf` still points at the stub (`127.0.0.53`),
+so the server can no longer resolve anything.
+**Fix:** point resolv.conf at the real upstream servers, then re-run the install:
+```bash
+ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+getent hosts ghcr.io                      # must print an IP
+```
+If the same run also printed `Cannot connect to the Docker daemon`, restart
+Docker: `systemctl restart docker`.
+
+### 8.17 `docker compose up` → `failed to bind host port … 6379` (or 80/443)
+**Cause:** host services already hold the ports — a system `redis-server` on 6379
+and/or `nginx` on 80/443. Preflight only **warns** about ports in use.
+**Fix:** see what holds them, and stop the host services if nothing depends on them:
+```bash
+ss -ltnp | grep -E ':(80|443|6379) '
+ls /etc/nginx/sites-enabled/              # nginx sites that would go offline
+systemctl disable --now nginx redis-server
+zone install                              # safe to re-run; secrets are kept
+```
+
+### 8.18 "Site not available" page for `admin.localhost` / `dashboard.localhost`
+**Cause:** the page comes from the `upande-fallback` container: Traefik answered, but
+no router matched the requested host. Two common reasons:
+- **The install is still in localhost mode.** Routes only match `*.localhost`, so a
+  request by IP or by your domain falls through to the fallback.
+- **You opened `*.localhost` in a browser on another machine.** Browsers always send
+  `*.localhost` to their own machine. If that machine runs a local Upande Cloud,
+  its own fallback page answers, and the VPS never sees the request.
+
+**Check** from any machine, forcing the host name:
+```bash
+curl -s -H 'Host: admin.localhost' http://<vps-ip>/ | grep -o '<title>[^<]*'
+# "Upande Cloud -- Admin" → the VPS is fine; use a domain (§5) or sslip.io
+```
+**Fix:** switch to a real domain, or to sslip.io until DNS is ready
+([§5](#5-going-live-with-a-domain--https)).
+
+### 8.19 DNS record exists in the panel but `dig` returns nothing
+**Cause:** the record was added in a DNS panel whose servers are **not** the domain's
+nameservers. For example: the record is in the hosting provider's DNS
+Management (zone NS `ns1.olitt.com`), while the registrar still delegates the
+domain to other nameservers (`ns1.cloudoon.com`).
+**Check:** compare the nameservers the domain uses with the ones that have the record:
+```bash
+dig +short NS <domain>                              # nameservers actually used
+dig +short admin.<domain> @<ns-from-the-panel>      # does the panel's server have it?
+dig +short admin.<domain> @<ns-from-first-command>  # does the live server have it?
+```
+**Fix:** either change the domain's nameservers at the registrar to the panel's
+nameservers, or add the record at the nameservers already in use. If the
+registrar panel errors on a nameserver change, ask its support to make it. In
+the Name field, enter only `*`: many panels append the domain, so
+`*.<domain>` becomes `*.<domain>.<domain>`.
 
 ---
 
